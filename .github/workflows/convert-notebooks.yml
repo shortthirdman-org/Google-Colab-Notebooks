@@ -8,7 +8,6 @@ permissions:
   actions: read        # Default safe read access
   pages: write
   id-token: write
-  persist-credentials: true
 
 jobs:
   convert:

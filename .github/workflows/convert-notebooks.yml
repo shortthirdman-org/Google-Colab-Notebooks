@@ -1,0 +1,58 @@
+name: Convert Notebooks to HTML
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+permissions:
+  contents: write      # Required to commit and push changes
+  actions: read        # Default safe read access
+  pages: write
+  id-token: write
+  persist-credentials: true
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true  # Needed for pushing commits
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Jupyter
+        run: |
+          python -m pip install --upgrade pip
+          pip install jupyter
+
+      - name: Convert large notebooks to HTML
+        run: |
+          mkdir -p docs
+          # Find notebooks larger than 20KB (20 * 1024 bytes)
+          find notebooks -type f -name "*.ipynb" -size +20k | while read nb; do
+            echo "Converting $nb ..."
+            jupyter nbconvert "$nb" --to html --output-dir docs
+          done
+
+      - name: List generated files
+        run: ls -lh docs
+
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Add and commit only if there are changes
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Automated: Convert Jupyter notebooks to HTML"
+            git push origin HEAD:${{ github.ref }}
+          fi

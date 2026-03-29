@@ -15,28 +15,56 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: true  # Needed for pushing commits
+          depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.x'
+          python-version: '3.12.13'
 
       - name: Install Jupyter
         run: |
           python -m pip install --upgrade pip
-          pip install jupyter
+          pip install -U -q jupyter nbconvert notebook
 
       - name: Convert large notebooks to HTML
         run: |
-          mkdir -p docs
-          # Find notebooks larger than 20KB (20 * 1024 bytes)
-          find notebooks -type f -name "*.ipynb" -size +20k | while read nb; do
+          mkdir -p "docs"
+          # Check if notebooks directory exists
+          if [ ! -d "notebooks" ]; then
+            echo "Directory 'notebooks' does not exist. Exiting."
+            exit 1
+          fi
+          
+          # Check if there are any .ipynb files
+          shopt -s nullglob
+          notebooks_list=(notebooks/*.ipynb)
+          if [ ${#notebooks_list[@]} -eq 0 ]; then
+            echo "No .ipynb files found in 'notebooks'. Exiting."
+            exit 0
+          fi
+          
+          # Create target directories if they don't exist
+          mkdir -p docs raw
+          
+          # Process notebooks >= 35KB (>= 35840 bytes)
+          find notebooks -type f -name "*.ipynb" -size +35839c | while read -r nb; do
             echo "Converting $nb ..."
-            jupyter nbconvert "$nb" --to html --output-dir docs
+            
+            if jupyter nbconvert "$nb" --log-level=ERROR --to html --output-dir docs; then
+                echo "Conversion successful. Deleting $nb"
+                rm -f "$nb"
+            else
+                echo "Conversion failed for $nb"
+            fi
           done
+          
+          # Move remaining notebooks (< 35KB or failed conversions) to raw
+          find notebooks -type f -name "*.ipynb" -exec mv {} raw/ \;
+          echo "Processing complete."
 
       - name: List generated files
         run: ls -lh docs

@@ -1,0 +1,85 @@
+name: Convert Notebooks to HTML
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+permissions:
+  contents: write      # Required to commit and push changes
+  actions: read        # Default safe read access
+  pages: write
+  id-token: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: true  # Needed for pushing commits
+          depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12.13'
+
+      - name: Install Jupyter
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U -q jupyter nbconvert notebook
+
+      - name: Convert large notebooks to HTML
+        run: |
+          mkdir -p "docs"
+          # Check if notebooks directory exists
+          if [ ! -d "notebooks" ]; then
+            echo "Directory 'notebooks' does not exist. Exiting."
+            exit 1
+          fi
+          
+          # Check if there are any .ipynb files
+          shopt -s nullglob
+          notebooks_list=(notebooks/*.ipynb)
+          if [ ${#notebooks_list[@]} -eq 0 ]; then
+            echo "No .ipynb files found in 'notebooks'. Exiting."
+            exit 0
+          fi
+          
+          # Create target directories if they don't exist
+          mkdir -p docs raw
+          
+          # Process notebooks >= 35KB (>= 35840 bytes)
+          find notebooks -type f -name "*.ipynb" -size +35839c | while read -r nb; do
+            echo "Converting $nb ..."
+            
+            if jupyter nbconvert "$nb" --log-level=ERROR --to html --output-dir docs; then
+                echo "Conversion successful. Deleting $nb"
+                rm -f "$nb"
+            else
+                echo "Conversion failed for $nb"
+            fi
+          done
+          
+          # Move remaining notebooks (< 35KB or failed conversions) to raw
+          find notebooks -type f -name "*.ipynb" -exec mv {} raw/ \;
+          echo "Processing complete."
+
+      - name: List generated files
+        run: ls -lh docs
+
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Add and commit only if there are changes
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Automated: Convert Jupyter notebooks to HTML"
+            git push origin HEAD:${{ github.ref }}
+          fi
